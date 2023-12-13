@@ -134,11 +134,8 @@ def handle_html_references(html_content, page_duplicate_file_names, page_file_ma
     for link_element in html_tree.xpath(xpath_expr):
         if not link_element.get('class'):
             print("LINK - "+link_element.attrib['href'])
-            try:
-                page_title = link_element.attrib['href'].split('/')[4]
-            except:
-                page_title = link_element.attrib['href'].split('/')[3]
-
+            num_segments = len(link_element.attrib['href'].split('/'))
+            page_title = link_element.attrib['href'].split('/')[num_segments - 1]
             page_title = page_title.replace('+', ' ')
             decoded_page_title = utils.decode_url(page_title)
             offline_link = provide_unique_file_name(page_duplicate_file_names, page_file_matching, decoded_page_title,
@@ -314,44 +311,14 @@ def fetch_page_recursively(page_id, folder_path, download_folder, html_template,
         # Remember this file and all children
         path_collection = {'file_path': file_name, 'page_title': page_title, 'child_pages': [], 'child_attachments': []}
 
-        # Download attachments of this page
-        # TODO: Outsource/Abstract the following two while loops because of much duplicate code.
-        page_url = '%s/rest/api/content/%s/child/attachment?limit=25' % (settings.CONFLUENCE_BASE_URL, page_id)
-        counter = 0
-        while page_url:
-            response = utils.http_get(page_url, auth=settings.HTTP_AUTHENTICATION, headers=settings.HTTP_CUSTOM_HEADERS,
-                                      verify_peer_certificate=settings.VERIFY_PEER_CERTIFICATE,
-                                      proxies=settings.HTTP_PROXIES)
-            counter += len(response['results'])
-            for attachment in response['results']:
-                download_url = attachment['_links']['download']
-                attachment_id = attachment['id'][3:]
-                attachment_info = download_attachment(download_url, download_folder, attachment_id,
-                                                      attachment_duplicate_file_names, attachment_file_matching,
-                                                      depth=depth+1)
-                path_collection['child_attachments'].append(attachment_info)
-
-            if 'next' in response['_links'].keys():
-                page_url = response['_links']['next']
-                page_url = '%s%s' % (settings.CONFLUENCE_BASE_URL, page_url)
-            else:
-                page_url = None
-
         # Export HTML file
         page_content = handle_html_references(page_content, page_duplicate_file_names, page_file_matching,
                                               depth=depth+1)
         file_path = '%s/%s' % (folder_path, file_name)
-        page_content += create_html_attachment_index(path_collection['child_attachments'])
-        utils.write_html_2_file(file_path, page_title, page_content, html_template)
-
-        # Save another file with page id which forwards to the original one
-        id_file_path = '%s/%s.html' % (folder_path, page_id)
-        id_file_page_title = 'Forward to page %s' % page_title
-        original_file_link = utils.encode_url(utils.sanitize_for_filename(file_name))
-        id_file_page_content = settings.HTML_FORWARD_MESSAGE % (original_file_link, page_title)
-        id_file_forward_header = '<meta http-equiv="refresh" content="0; url=%s" />' % original_file_link
-        utils.write_html_2_file(id_file_path, id_file_page_title, id_file_page_content, html_template,
-                                additional_headers=[id_file_forward_header])
+        source_id_header = '<meta name="dy.source-id" content="%s" />' % page_id
+        source_url_header = '<meta name="dy.source-url" content="%s/pages/viewpage.action?pageId=%s" />' % (settings.CONFLUENCE_BASE_URL, page_id)
+        utils.write_html_2_file(file_path, page_title, page_content, html_template,
+                                additional_headers=[source_id_header, source_url_header])
 
         # Iterate through all child pages
         page_url = '%s/rest/api/content/%s/child/page?limit=25' % (settings.CONFLUENCE_BASE_URL, page_id)
